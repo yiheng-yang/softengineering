@@ -1,0 +1,28 @@
+@startuml
+title 酒店预订系统核心业务组件图
+!pragma layout smetana
+top to bottom direction
+skinparam dpi 200
+skinparam componentStyle uml2
+skinparam shadowing false
+skinparam nodesep 65
+skinparam ranksep 75
+component "查询与推荐" as Search
+component "入住与结算" as Stay
+component "停售停业与\n异常处理" as Closure
+component "预订与订单" as Booking
+component "酒店与房源" as Hotel
+component "消息通知" as Notice
+Stay -down-> Booking : 核验订单\n更新入住、退房状态
+Closure -down-> Booking : 查询受影响订单\n请求拒绝或异常取消
+Booking -down-> Hotel : 核验并占用库存\n调整或释放库存
+Booking -right-> Notice : 提交成功后\n触发订单变化通知
+Search -down-> Hotel : 查询房型、价格\n及各晚可售库存
+Stay -left-> Hotel : 分配实体房间\n更新入住及清洁状态
+Closure -right-> Hotel : 设置停售停业限制\n按规则恢复销售
+legend bottom
+箭头：调用方 → 提供功能的模块。
+本图展示核心调用；账号权限、统计和日志在总体架构说明中补充。
+全部业务模块位于同一后端应用，相关更新共享数据库事务。
+endlegend
+@enduml

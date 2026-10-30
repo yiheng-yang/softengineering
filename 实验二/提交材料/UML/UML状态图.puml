@@ -1,0 +1,115 @@
+@startuml
+title 酒店预订系统订单状态图
+top to bottom direction
+
+skinparam dpi 300
+skinparam shadowing false
+skinparam nodesep 65
+skinparam ranksep 80
+skinparam ArrowFontSize 11
+skinparam state {
+  BackgroundColor #F5F7FA
+  BorderColor #526477
+  FontColor #202020
+}
+
+state "待确认" as Pending #FFF2CC
+state "已确认" as Confirmed #DAE8FC
+state "已入住" as CheckedIn #D5E8D4
+state "已完成" as Completed #D5E8D4
+state "已取消" as Cancelled #F8CECC
+state "已拒绝" as Rejected #F8CECC
+state "已超时" as Expired #E1D5E7
+
+' 创建成功才进入订单生命周期
+[*] --> Pending : 顾客提交预订\n[价格、销售状态及全部住宿晚库存核验通过]\n/ 保存成交快照并占用各晚库存
+
+' 正常确认及履约
+Pending --> Confirmed : 工作人员接单\n[当前时间早于原15分钟期限]\n/ 保留原库存占用
+
+Confirmed --> CheckedIn : 工作人员办理整单入住\n[满足入住规则且全部房间可分配]\n/ 保存分配记录并更新房态
+
+CheckedIn --> Completed : 工作人员办理整单退房\n/ 登记退房时间，房间转为待清洁
+
+' 待确认订单调整成功，同时完成接单
+Pending --> Confirmed : 双方确认同一调整方案\n[满足调整期限且新价格、库存核验通过]\n/ 更新方案、成交快照及库存差额
+
+' 顾客取消
+Pending --> Cancelled : 顾客取消\n[早于入住日中午12:00]\n/ 释放库存，手续费为0
+
+Confirmed --> Cancelled : 顾客取消\n[早于入住日中午12:00]\n/ 释放库存，应收为成交总房费的20%
+
+' 酒店拒绝与系统超时
+Pending --> Rejected : 工作人员拒绝接待\n[早于原15分钟期限]\n/ 保存原因，释放库存，手续费为0
+
+Pending --> Expired : 到达创建成功后15分钟\n/ 1分钟内关闭并释放库存，手续费为0
+
+' 酒店原因取消及未到店关闭
+Confirmed --> Cancelled : 管理员因酒店原因异常取消\n/ 保存处理依据，释放库存，手续费为0
+
+Confirmed --> Cancelled : 到达入住日期次日中午12:00\n[仍未办理入住]\n/ 原因记为未到店，应收为成交总房费的20%\n释放后续未使用住宿晚库存
+
+' 终止状态不再恢复
+Completed --> [*]
+Cancelled --> [*]
+Rejected --> [*]
+Expired --> [*]
+
+note left of Pending
+订单调整须同时满足：
+1. 订单仍为待确认。
+2. 双方在原15分钟期限内确认同一方案。
+3. 严格早于原、新入住日中
+   较早日期的中午12:00。
+4. 新方案价格及全部住宿晚库存核验通过。
+
+调整成功后直接转为已确认。
+单方确认或调整失败时，
+原订单及原占用保持不变，
+原确认期限不延长。
+end note
+
+note right of Confirmed
+已确认订单不允许修改日期、房型或间数。
+
+达到15分钟期限后，
+即使超时任务尚未执行，也不得接单。
+
+未到店关闭时刻到达后，
+即使关闭任务尚未执行，也不得办理入住。
+end note
+
+note right of Cancelled
+取消原因分别记录：
+顾客取消、酒店原因、未到店。
+
+费用以订单保存的成交总房费为基数。
+系统计算应收应退并登记线下结算，
+不直接执行线上收退款。
+
+过去住宿日期保留历史，
+不能作为未来库存重新出售。
+end note
+
+legend bottom
+转换标签格式：
+触发事件 [前置条件] / 执行动作
+
+统一采用北京时间。
+每单属于同一家酒店，使用相同住宿日期，可包含多个房型。
+订单整体确认、取消、入住和退房，不支持部分处理。
+
+一致性规则：
+订单、库存、费用及成功日志在同一事务中更新。
+通知在业务提交成功后触发，通知失败不回滚订单。
+重复请求和并发冲突不能重复占用、释放或收费。
+
+禁止的转换：
+待确认不能直接入住；已入住不能普通取消。
+已完成、已取消、已拒绝、已超时均不能恢复。
+图中未列出的状态转换不允许。
+
+终止符表示本次订单状态流程结束，历史记录仍保留。
+endlegend
+
+@enduml

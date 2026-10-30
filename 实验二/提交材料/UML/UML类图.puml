@@ -1,0 +1,137 @@
+@startuml
+title 酒店预订系统核心业务类图
+top to bottom direction
+
+skinparam dpi 300
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam linetype polyline
+skinparam nodesep 80
+skinparam ranksep 90
+skinparam ArrowFontSize 11
+skinparam classAttributeIconSize 0
+
+hide circle
+hide empty members
+
+package "酒店与房源" as HotelGroup {
+  class "酒店" as Hotel {
+    - 酒店编号: String
+    - 名称: String
+    - 地址: String
+  }
+
+  class "房型" as RoomType {
+    - 房型编号: String
+    - 名称: String
+    - 床型: String
+    - 可住人数: Integer
+  }
+
+  class "每日房源" as DailyInventory {
+    - 住宿日期: Date
+    - 当日价格: Decimal
+    - 可售总量: Integer
+    - 已占数量: Integer
+    + 计算可订余量(): Integer
+  }
+
+  class "实体房间" as Room {
+    - 房间编号: String
+    - 房号: String
+    - 当前房态: RoomStatus
+    + 标记入住()
+    + 标记待清洁()
+    + 完成清洁()
+    + 登记维修()
+    + 完成维修验收()
+  }
+}
+
+package "订单管理" as OrderGroup {
+  class "顾客" as Customer {
+    - 顾客编号: String
+    - 姓名: String
+    - 联系方式: String
+  }
+
+  class "预订订单" as Order {
+    - 订单编号: String
+    - 入住日期: Date
+    - 退房日期: Date
+    - 创建时间: DateTime
+    - 状态: OrderStatus
+    - 总价: Decimal
+    + 计算总价(): Decimal
+    + 确认()
+    + 取消()
+  }
+
+  class "房间预订项" as Item {
+    - 预订项编号: String
+    - 入住人数: Integer
+    + 计算小计(): Decimal
+  }
+
+  class "预订逐晚明细" as NightDetail {
+    - 明细编号: String
+    - 住宿日期: Date
+    - 成交单价: Decimal
+    - 占用有效: Boolean
+  }
+}
+
+package "入住管理" as StayGroup {
+  class "入住房间分配" as Assignment {
+    - 分配编号: String
+    - 入住时间: DateTime
+    - 退房时间: DateTime（可空）
+  }
+}
+
+' 分区布局辅助线，不表示业务关系
+HotelGroup -[hidden]right-> OrderGroup
+OrderGroup -[hidden]down-> StayGroup
+
+' 蓝色：订单内部关系
+Customer "1" -[#336699]down- "0..*" Order : 提交
+Order "1" *-[#336699]down- "1..5" Item : 包含
+Item "1" *-[#336699]down- "1..14" NightDetail : 包含
+
+' 蓝色：订单向左关联酒店与房源
+Order "0..*" -[#336699]left-> "1" Hotel : 所属酒店
+Item "0..*" -[#336699]left-> "1" RoomType : 所选房型
+NightDetail "0..*" -[#336699]left-> "1" DailyInventory : 对应房源
+
+' 灰色：酒店与房源内部关系
+Hotel "1" -[#777777]down- "0..*" RoomType : 提供
+RoomType "1" -[#777777]down- "0..*" DailyInventory : 分日房源
+RoomType "1" -[#777777]down- "0..*" Room : 实体房间
+
+' 绿色：入住分配关系
+Item "1" -[#38805A]down- "0..1" Assignment : 入住分配
+Assignment "0..*" -[#38805A]left-> "1" Room : 分配房间
+
+legend bottom
+|= 颜色 |= 关联内容 |
+| <color:#336699>蓝色</color> | 订单、预订及库存 |
+| <color:#38805A>绿色</color> | 入住房间分配 |
+| <color:#777777>灰色</color> | 酒店及房源归属 |
+
+数量说明：
+1：恰好一个；0..1：零个或一个；0..*：零个或多个。
+1..5：一至五个；1..14：一至十四个。
+实心菱形表示组成关系，位于整体一端。
+
+业务约束：
+每单限定同一家酒店、相同住宿日期，允许多个房型。
+每单最多5间、14晚，各间人数不得超过所选房型容量。
+每个预订项每个住宿晚恰好一条明细，保存成交价格。
+房型编号与住宿日期共同唯一，每条有效明细占用当晚一间库存。
+订单总价等于全部逐晚明细成交单价之和。
+入住分配的实体房间必须属于预订项所选房型。
+同一实体房间同时最多有一条未退房的分配记录。
+退房后保留历史分配，房间转为待清洁。
+endlegend
+
+@enduml

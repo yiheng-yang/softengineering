@@ -1,0 +1,144 @@
+@startuml
+title 酒店预订系统 顾客提交预订时序图
+
+skinparam dpi 300
+skinparam shadowing false
+
+skinparam BoxPadding 10
+skinparam sequenceMessageAlign center
+hide footbox
+
+autonumber
+
+actor "顾客" as Customer
+boundary "预订界面" as UI
+control "订单服务" as OrderService
+control "房源服务" as InventoryService
+database "数据库" as DB
+control "通知服务" as NoticeService
+
+Customer -> UI : 选择房型、各间人数及住宿日期
+UI -> UI : 展示各晚价格、总价及预订规则
+Customer -> UI : 确认报价并提交
+UI -> OrderService : 提交预订（请求标识、预订内容、认可报价）
+
+OrderService -> OrderService : 校验登录身份、参数及数据权限
+
+alt 身份或参数无效
+  OrderService --> UI : 拒绝请求，说明原因
+  UI --> Customer : 显示错误提示
+
+else 校验通过
+  OrderService -> DB : 查询本人该请求标识的处理记录
+  DB --> OrderService : 返回处理记录
+
+  alt 同一请求已处理成功且参数一致
+    OrderService --> UI : 返回原订单
+    UI --> Customer : 展示原订单，不重复预订
+
+  else 同一请求处理中
+    OrderService --> UI : 返回处理中提示
+    UI --> Customer : 提示稍后使用同一请求标识重试
+
+  else 请求标识已使用但参数不同
+    OrderService --> UI : 拒绝复用，要求重新发起
+    UI --> Customer : 显示请求冲突提示
+
+  else 新请求
+    OrderService -> DB : 查询本人相同内容的有效订单
+    DB --> OrderService : 返回待确认或已确认的匹配订单
+
+    opt 存在相同内容订单，且尚未明确选择新增
+      OrderService --> UI : 返回已有订单及重复预订提醒
+      UI --> Customer : 选择查看原订单或仍要新增
+
+      alt 查看原订单或放弃新增
+        break 本次新增流程结束
+          UI --> Customer : 展示原订单或返回预订页面
+        end
+      else 明确仍要新增
+        Customer -> UI : 确认新增独立订单
+        UI -> OrderService : 继续提交（原请求标识、新增确认）
+      end
+    end
+
+    group 同一数据库事务：订单服务与房源服务共享
+      OrderService -> DB : 开始事务
+      OrderService -> DB : 登记唯一请求标识及参数摘要
+
+      alt 并发重复请求已抢先登记
+        DB --> OrderService : 唯一性冲突
+        OrderService -> DB : 回滚事务
+        OrderService -> DB : 查询该请求的有效处理结果
+        DB --> OrderService : 原订单或处理中状态
+        OrderService --> UI : 返回原结果或处理中提示
+        UI --> Customer : 展示结果，不重复创建
+
+      else 本请求取得处理资格
+        DB --> OrderService : 登记成功
+
+        OrderService -> OrderService : 按房型和住宿日期汇总所需间数
+        OrderService -> InventoryService : 核验并占用全部住宿晚库存
+        InventoryService -> DB : 锁定相关价格、销售限制及库存记录\n按固定顺序读取，使用当前有效数据
+        DB --> InventoryService : 返回当前价格、销售限制和可订余量
+
+        alt 任一房型任一晚无房或限制销售
+          InventoryService --> OrderService : 核验失败及原因
+          OrderService -> DB : 回滚事务
+          OrderService --> UI : 预订失败，无部分占用
+          UI --> Customer : 提示调整日期或房型
+
+        else 当前价格与顾客认可报价不一致
+          InventoryService --> OrderService : 返回新报价，未占用库存
+          OrderService -> DB : 回滚事务
+          OrderService --> UI : 要求重新确认价格
+          UI --> Customer : 展示新报价，重新确认后发起新请求
+
+        else 全部核验通过
+          InventoryService -> DB : 更新全部住宿晚的库存占用
+          DB --> InventoryService : 更新结果
+          InventoryService --> OrderService : 返回占用结果及各晚价格
+
+          OrderService -> DB : 保存待确认订单、房间预订项、逐晚明细\n成交价格快照、成功日志及请求结果
+
+          alt 库存更新或后续保存发生异常
+            OrderService -> DB : 回滚全部关联更新
+            OrderService --> UI : 返回处理失败
+            UI --> Customer : 提示失败，可按规则重试
+
+          else 全部保存成功
+            OrderService -> DB : 提交事务
+            DB --> OrderService : 提交成功
+
+            OrderService ->> NoticeService : 触发订单创建事件（订单编号、事件标识）
+            OrderService --> UI : 返回订单编号、待确认状态及15分钟期限
+            UI --> Customer : 展示预订成功及订单详情
+
+            NoticeService -> NoticeService : 发送站内消息与短信
+            NoticeService -> DB : 保存各渠道发送结果
+
+            opt 某渠道发送失败
+              NoticeService -> NoticeService : 仅重试失败渠道\n最多3次，间隔1分钟
+              NoticeService -> DB : 保存重试结果
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+legend bottom
+实线箭头：请求或内部调用；虚线箭头：返回结果。
+异步箭头：提交成功后触发通知，不等待通知送达才返回订单。
+
+设计说明：
+一单限定同一家酒店、相同住宿日期，可包含多个房型。
+创建与占用库存必须整体成功或整体失败。
+库存竞争以事务内锁定后的有效数据为准，防止超售。
+重复提交由数据库唯一性约束兜底，不能仅依赖事先查询。
+价格变更需要顾客重新确认，不能直接按新价下单。
+通知失败不撤销订单；响应丢失后可用同一请求标识查询原结果。
+endlegend
+
+@enduml
