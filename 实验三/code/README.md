@@ -42,7 +42,7 @@
 - `booking*.py`：报价和预订；`order*.py`：订单状态、费用和库存释放。
 - `stay*.py`：入住、退房和清洁；`auth.py`：密码认证。
 - `database.py` / `schema.sql`：SQLite事务与表结构。
-- `tests/`：自动化测试；`../开发记录/`：真实开发过程记录。
+- `tests/`：自动化测试。
 
 ## 检查
 
